@@ -27,6 +27,10 @@ public class Request {
     @Getter
     @NonNull
     @NotNull
+    private final String userAddress;
+    @Getter
+    @NonNull
+    @NotNull
     private final String fullUrl;
     @Getter
     @NonNull
@@ -43,10 +47,11 @@ public class Request {
     @Getter
     private final byte[] body;
 
-    public Request(@NotNull String[] paths, @NotNull Map<String, String> arguments, @NotNull HttpMethod method, @NotNull String fullUrl, @NotNull String host, @NotNull Map<String, String> headers, @NotNull List<Cookie> cookies, byte[] body) {
+    public Request(@NotNull String[] paths, @NotNull Map<String, String> arguments, @NotNull HttpMethod method, @NotNull String userAddress, @NotNull String fullUrl, @NotNull String host, @NotNull Map<String, String> headers, @NotNull List<Cookie> cookies, byte[] body) {
         this.paths = paths;
         this.arguments = arguments;
         this.method = method;
+        this.userAddress = userAddress;
         this.fullUrl = fullUrl;
         this.host = host;
         this.headers = headers;

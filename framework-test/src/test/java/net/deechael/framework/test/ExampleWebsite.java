@@ -16,8 +16,7 @@ public class ExampleWebsite {
     @RequestMethod(HttpMethod.GET)
     @Path("/test")
     public static void test(Request request, Responder responder) {
-        responder.addCookie(new DefaultCookie("ged_token", "114514"));
-        responder.setContent(new StringContent("hello, world!"));
+        responder.setContent(new StringContent("hello, world! your address is " + request.getUserAddress()));
     }
 
     @RequestMethod(HttpMethod.GET)

@@ -16,6 +16,7 @@ import io.netty.handler.codec.http.*;
 import io.netty.handler.codec.http.cookie.Cookie;
 import io.netty.handler.codec.http.cookie.ServerCookieDecoder;
 import io.netty.handler.codec.http.cookie.ServerCookieEncoder;
+import io.netty.handler.stream.ChunkedWriteHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -27,7 +28,6 @@ import java.util.*;
 import java.util.regex.Pattern;
 
 import static io.netty.handler.codec.http.HttpHeaderNames.*;
-import static io.netty.handler.codec.http.HttpResponseStatus.OK;
 
 public class GedWebsite {
 
@@ -114,10 +114,13 @@ public class GedWebsite {
                         .childHandler(new ChannelInitializer<SocketChannel>() {
                             @Override
                             public void initChannel(SocketChannel ch) {
-                                ch.pipeline().addLast(
-                                        new HttpResponseEncoder());
-                                ch.pipeline().addLast(
-                                        new HttpRequestDecoder());
+                                ch.pipeline().addLast("http-decoder", new HttpRequestDecoder());
+                                ch.pipeline().addLast("http-aggregator",
+                                        new HttpObjectAggregator(65536));
+                                ch.pipeline()
+                                        .addLast("http-encoder", new HttpResponseEncoder());
+                                ch.pipeline()
+                                        .addLast("http-chunked", new ChunkedWriteHandler());
                                 ch.pipeline().addLast(
                                         new Listener(GedWebsite.this));
                             }
@@ -143,7 +146,7 @@ public class GedWebsite {
 
         @Override
         public void channelRead(ChannelHandlerContext ctx, Object msg) throws IllegalAccessException, InvocationTargetException, NoSuchMethodException, InstantiationException {
-            if (msg instanceof HttpRequest) {
+            if (msg instanceof FullHttpRequest) {
                 FullHttpRequest request = (FullHttpRequest) msg;
                 request.headers().get(HOST);
                 String url = request.uri();
@@ -262,7 +265,7 @@ public class GedWebsite {
                 } else {
                     bodyBytes = new byte[0];
                 }
-                Request req = new Request(paths, args, httpMethod, request.headers().get(HOST) + request.uri(), host, map(request.headers()), cookies, bodyBytes);
+                Request req = new Request(paths, args, httpMethod, ctx.channel().remoteAddress().toString(), request.headers().get(HOST) + request.uri(), host, map(request.headers()), cookies, bodyBytes);
                 Responder responder = new Responder();
                 List<Object> arguments = new ArrayList<>();
                 arguments.add(req);
@@ -283,7 +286,7 @@ public class GedWebsite {
                     return;
                 }
 
-                FullHttpResponse response = new DefaultFullHttpResponse(HttpVersion.HTTP_1_1, OK, Unpooled.copiedBuffer(responder.getContent().getBytes()));
+                FullHttpResponse response = new DefaultFullHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.valueOf(responder.getStatus().getCode()), Unpooled.copiedBuffer(responder.getContent().getBytes()));
                 response.headers().set(SET_COOKIE, ServerCookieEncoder.STRICT.encode(responder.getCookies()));
                 response.headers().set(CONTENT_TYPE, responder.getContentType().getContentType());
                 response.headers().set(HttpHeaderNames.CONTENT_LENGTH, response.content().readableBytes());

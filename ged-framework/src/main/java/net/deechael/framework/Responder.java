@@ -7,6 +7,7 @@ import lombok.Setter;
 import net.deechael.framework.content.Content;
 import net.deechael.framework.content.StringContent;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -35,6 +36,11 @@ public class Responder {
     @Setter
     @NonNull
     @NotNull
+    private ResponseStatus status = ResponseStatus.OK;
+
+    @Getter
+    @Setter
+    @Nullable
     private Content content = new StringContent("No content");
 
     public Responder() {
