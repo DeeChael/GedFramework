@@ -7,6 +7,7 @@ import lombok.Setter;
 import net.deechael.framework.content.Content;
 import net.deechael.framework.content.StringContent;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -16,9 +17,13 @@ import java.util.Map;
 public class Responder {
 
     @Getter
+    @NonNull
+    @NotNull
     private final Map<String, String> headers = new HashMap<>();
 
     @Getter
+    @NonNull
+    @NotNull
     private final List<Cookie> cookies = new ArrayList<>();
 
     @Getter
@@ -29,17 +34,24 @@ public class Responder {
 
     @Getter
     @Setter
+    @NonNull
+    @NotNull
+    private ResponseStatus status = ResponseStatus.OK;
+
+    @Getter
+    @Setter
+    @Nullable
     private Content content = new StringContent("No content");
 
     public Responder() {
 
     }
 
-    public void addHeader(String key, String value) {
+    public void addHeader(@NotNull String key, @NotNull String value) {
         this.headers.put(key, value);
     }
 
-    public void addCookie(Cookie cookie) {
+    public void addCookie(@NotNull Cookie cookie) {
         this.cookies.add(cookie);
     }
 

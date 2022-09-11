@@ -1,5 +1,7 @@
 plugins {
     id 'java'
+    id 'maven-publish'
+    id 'signing'
 }
 
 group 'net.deechael'
@@ -7,6 +9,11 @@ version '1.00.0'
 
 repositories {
     mavenCentral()
+}
+
+java {
+    withJavadocJar()
+    withSourcesJar()
 }
 
 dependencies {
@@ -17,12 +24,72 @@ dependencies {
     implementation 'io.netty:netty-all:4.1.80.Final'
     implementation 'com.google.auto.service:auto-service:1.0.1'
     implementation 'net.deechael:dcg:1.04.0'
-    implementation 'ch.qos.logback:logback-classic:1.2.11'
+    implementation 'ch.qos.logback:logback-classic:1.2.11' // Don't update! 1.4.0 doesn't support java 1.8
     implementation 'org.jsoup:jsoup:1.15.3'
     implementation 'commons-io:commons-io:2.11.0'
+    implementation 'com.google.code.gson:gson:2.9.1'
 
     annotationProcessor 'com.google.auto.service:auto-service:1.0.1'
     annotationProcessor 'org.projectlombok:lombok:1.18.24'
     testAnnotationProcessor 'com.google.auto.service:auto-service:1.0.1'
     testAnnotationProcessor 'org.projectlombok:lombok:1.18.24'
+}
+
+
+publishing {
+    publications {
+        maven(MavenPublication) {
+            groupId = 'net.deechael'
+            artifactId = 'ged-framework'
+            version = "1.00.0"
+            from components.java
+
+            pom {
+                name = 'GedFramework'
+                description = 'A light-weight website framework'
+                url = 'https://github.com/DeeChael/GedFramework'
+                licenses {
+                    license {
+                        name = 'GNU General Public License v3.0'
+                        url = 'https://www.gnu.org/licenses/gpl-3.0.html'
+                    }
+                }
+                developers {
+                    developer {
+                        id = 'deechael'
+                        name = 'DeeChael'
+                        email = 'DeeChael@outlook.com'
+                    }
+                }
+                scm {
+                    connection = 'scm:git:git://github.com/DeeChael/GedFramework.git'
+                    developerConnection = 'scm:git:ssh://git@github.com:DeeChael/GedFramework.git'
+                    url = 'https://github.com/DeeChael/GedFramework'
+                }
+            }
+        }
+    }
+
+    repositories {
+        var ENV = System.getenv()
+        maven {
+            credentials {
+                username = ENV.get("OSSRH_USERNAME")
+                password = ENV.get("OSSRH_PASSWORD")
+            }
+            name = 'release'
+            url = 'https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/'
+        }
+    }
+}
+
+signing {
+    useGpgCmd()
+    sign publishing.publications.maven
+}
+
+javadoc {
+    if(JavaVersion.current().isJava9Compatible()) {
+        options.addBooleanOption('html5', true)
+    }
 }

@@ -2,6 +2,24 @@
 ## A light-weight website framework
 In developing
 
+## Import
+maven
+```xml
+<dependency>
+    <groupId>net.deechael</groupId>
+    <artifactId>ged-framework</artifactId>
+    <version>1.00.0</version>
+</dependency>
+```
+
+gradle
+```groovy
+dependencies { 
+    //...
+    implementation 'net.deechael:ged-framework:1.00.0'
+}
+```
+
 ## Quick start
 ```java
 package net.deechael.framework.test;
@@ -25,7 +43,7 @@ public class ExampleWebsite {
     @Path("/test")
     public static void test(Request request, Responder responder) {
         responder.addCookie(new DefaultCookie("ged_token", "114514"));
-        responder.setContent(new StringContent("hello, world!"));
+        responder.setContent(new StringContent("hello, world! your address is " + request.getUserAddress()));
     }
 
     @RequestMethod(HttpMethod.GET)

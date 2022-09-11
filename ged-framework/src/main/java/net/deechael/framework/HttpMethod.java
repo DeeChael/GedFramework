@@ -2,7 +2,14 @@ package net.deechael.framework;
 
 public enum HttpMethod {
 
+    OPTIONS,
     POST,
-    GET;
+    HEAD,
+    GET,
+    PUT,
+    PATCH,
+    DELETE,
+    TRACE,
+    CONNECT
 
 }
