@@ -1,9 +1,3 @@
-# GedFramework
-## A light-weight website framework
-In developing
-
-## Quick start
-```java
 package net.deechael.framework.test;
 
 import io.netty.handler.codec.http.cookie.DefaultCookie;
@@ -16,8 +10,6 @@ public class ExampleWebsite {
 
     public static void main(String[] args) throws InterruptedException {
         GedWebsite website = new GedWebsite(ExampleWebsite.class);
-        // Because I don't know how to code an AnnotationProcessor
-        // If you could, please help me and make a pull request!
         website.start();
     }
 
@@ -61,4 +53,3 @@ public class ExampleWebsite {
 
 
 }
-```
