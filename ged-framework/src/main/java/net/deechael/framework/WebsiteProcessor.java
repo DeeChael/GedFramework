@@ -1,7 +1,10 @@
 package net.deechael.framework;
 
 import com.google.auto.service.AutoService;
-import net.deechael.dcg.*;
+import net.deechael.dcg.JClass;
+import net.deechael.dcg.JMethod;
+import net.deechael.dcg.JType;
+import net.deechael.dcg.Level;
 import net.deechael.dcg.items.Var;
 
 import javax.annotation.processing.*;
@@ -17,6 +20,7 @@ import java.util.Set;
 
 /*
  *  TODO
+ *  FIXME
  *  idk how to code this!!!
  */
 @AutoService(Processor.class)

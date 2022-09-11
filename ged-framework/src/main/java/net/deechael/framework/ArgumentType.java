@@ -1,5 +1,8 @@
 package net.deechael.framework;
 
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+
 import java.util.function.Function;
 
 public enum ArgumentType {
@@ -20,14 +23,17 @@ public enum ArgumentType {
         this.emptyValue = emptyValue;
     }
 
+    @Nullable
     public Object getEmptyValue() {
         return emptyValue;
     }
 
+    @NotNull
     public Object parse(String string) {
         return parser.apply(string);
     }
 
+    @NotNull
     public Class<?> getTypeClass() {
         return typeClass;
     }

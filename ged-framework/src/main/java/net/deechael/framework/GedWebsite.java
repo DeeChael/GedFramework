@@ -13,9 +13,8 @@ import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.handler.codec.http.*;
-import io.netty.handler.codec.http.HttpRequest;
-import io.netty.handler.codec.http.cookie.*;
 import io.netty.handler.codec.http.cookie.Cookie;
+import io.netty.handler.codec.http.cookie.ServerCookieDecoder;
 import io.netty.handler.codec.http.cookie.ServerCookieEncoder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -145,7 +144,7 @@ public class GedWebsite {
         @Override
         public void channelRead(ChannelHandlerContext ctx, Object msg) throws IllegalAccessException, InvocationTargetException, NoSuchMethodException, InstantiationException {
             if (msg instanceof HttpRequest) {
-                HttpRequest request = (HttpRequest) msg;
+                FullHttpRequest request = (FullHttpRequest) msg;
                 request.headers().get(HOST);
                 String url = request.uri();
                 if (url.equalsIgnoreCase("favicon.ico")) {
@@ -155,7 +154,7 @@ public class GedWebsite {
                 String host = request.headers().get(HOST);
                 if (host.contains(":"))
                     host = host.split(":")[0];
-                String[] paths = new String[] {};
+                String[] paths = new String[]{};
                 Map<String, String> args = new HashMap<>();
                 if (url.contains("?")) {
                     String[] split = url.split("\\?");
@@ -184,10 +183,7 @@ public class GedWebsite {
                 if (request.headers().contains(COOKIE)) {
                     cookies = ServerCookieDecoder.STRICT.decodeAll(request.headers().get(COOKIE));
                 }
-                HttpMethod httpMethod = HttpMethod.GET;
-                if (request.method() == io.netty.handler.codec.http.HttpMethod.POST) {
-                    httpMethod = HttpMethod.POST;
-                }
+                HttpMethod httpMethod = HttpMethod.valueOf(request.method().name());
 
                 Method result = null;
                 for (Method method : website.methods) {
@@ -204,14 +200,14 @@ public class GedWebsite {
                         continue;
                     boolean shouldContinue = true;
                     for (String pth : path.value()) {
-                        String[] pths = new String[] {};
+                        String[] pths = new String[]{};
                         if (!pth.equals("/")) {
                             if (pth.startsWith("/")) pth = pth.substring(1);
                             if (pth.endsWith("/")) pth = pth.substring(0, pth.length() - 1);
                             if (pth.contains("/")) {
                                 pths = pth.split("/");
                             } else {
-                                pths = new String[] { pth };
+                                pths = new String[]{pth};
                             }
                         }
                         if (pths.length != paths.length)
@@ -259,8 +255,14 @@ public class GedWebsite {
                     ctx.close();
                     return;
                 }
-
-                Request req = new Request(paths, args, httpMethod, request.headers().get(HOST) + request.uri(), host, map(request.headers()), cookies);
+                byte[] bodyBytes;
+                ByteBuf bodyContent = request.content();
+                if (bodyContent.isReadable()) {
+                    bodyBytes = bodyContent.copy().array();
+                } else {
+                    bodyBytes = new byte[0];
+                }
+                Request req = new Request(paths, args, httpMethod, request.headers().get(HOST) + request.uri(), host, map(request.headers()), cookies, bodyBytes);
                 Responder responder = new Responder();
                 List<Object> arguments = new ArrayList<>();
                 arguments.add(req);

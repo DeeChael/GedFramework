@@ -1,7 +1,9 @@
 package net.deechael.framework.content;
 
 import lombok.Getter;
+import lombok.NonNull;
 import lombok.Setter;
+import org.jetbrains.annotations.NotNull;
 import org.w3c.dom.Document;
 
 import javax.xml.transform.OutputKeys;
@@ -16,9 +18,11 @@ public class W3CContent implements Content {
 
     @Getter
     @Setter
+    @NonNull
+    @NotNull
     private Document document;
 
-    public W3CContent(Document document) {
+    public W3CContent(@NotNull Document document) {
         this.document = document;
     }
 

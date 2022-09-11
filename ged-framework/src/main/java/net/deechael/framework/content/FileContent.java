@@ -2,7 +2,9 @@ package net.deechael.framework.content;
 
 import com.google.common.io.Files;
 import lombok.Getter;
+import lombok.NonNull;
 import lombok.Setter;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
 import java.io.IOException;
@@ -12,13 +14,15 @@ public class FileContent implements Content {
 
     @Getter
     @Setter
+    @NonNull
+    @NotNull
     private File file;
 
-    public FileContent(File file) {
+    public FileContent(@NotNull File file) {
         this.file = file;
     }
 
-    public FileContent(String fileName) {
+    public FileContent(@NonNull String fileName) {
         this(new File(fileName));
     }
 
