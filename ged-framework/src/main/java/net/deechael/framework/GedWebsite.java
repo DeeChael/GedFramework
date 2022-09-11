@@ -221,9 +221,9 @@ public class GedWebsite {
                             String clientPath = paths[i];
                             if (serverPath.equals("%s"))
                                 continue;
-                            if (serverPath.equals("%i") && Pattern.matches("-?[0-9]+", clientPath))
+                            if (serverPath.equals("%i") && Pattern.matches("-?\\d+", clientPath))
                                 continue;
-                            if (serverPath.equals("%d") && Pattern.matches("-?[0-9]+(\\.?[0-9]+)?", clientPath))
+                            if (serverPath.equals("%d") && Pattern.matches("-?\\d+(\\.?\\d+)?", clientPath))
                                 continue;
                             if (clientPath.equals(serverPath)) {
                                 break;
