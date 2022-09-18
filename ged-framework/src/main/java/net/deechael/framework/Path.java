@@ -25,7 +25,7 @@ public @interface Path {
      * @return paths
      */
     @NotNull
-    String[] value();
+    String value();
 
     /**
      * if ture, e.g. the value of path is {"/list"}
@@ -34,5 +34,11 @@ public @interface Path {
      * @return ignored
      */
     boolean ignoreCaps() default false;
+
+    /**
+     * Match path with regex
+     * @return is regex
+     */
+    boolean regex() default false;
 
 }

@@ -37,7 +37,9 @@ public class GedWebsite {
 
     private boolean started = false;
 
-    private final List<Method> methods = new ArrayList<>();
+    private final Map<Method, Path[]> methods = new HashMap<>();
+
+    private Method unknownEntrance = null;
 
     public <T> GedWebsite(Class<T> pageHandler) {
         this.logger = LoggerFactory.getLogger(pageHandler);
@@ -52,32 +54,53 @@ public class GedWebsite {
             if (!Modifier.isStatic(method.getModifiers()))
                 continue;
             method.setAccessible(true);
-            Path path = method.getAnnotation(Path.class);
+            Paths paths = method.getAnnotation(Paths.class);
             Parameter[] parameters = method.getParameters();
-            if (path == null) {
-                if (method.getAnnotation(UnknownPath.class) == null)
-                    continue;
-                if (parameters.length != 2)
-                    continue;
-                if (parameters[0].getType() != Request.class)
-                    continue;
-                if (parameters[1].getType() != Responder.class)
-                    continue;
-            } else {
+            if (parameters.length < 2)
+                continue;
+            if (parameters[0].getType() != Request.class)
+                continue;
+            if (parameters[1].getType() != Responder.class)
+                continue;
+            List<Path> pathList = new ArrayList<>();
+            if (paths != null) {
                 if (method.getAnnotation(UnknownPath.class) != null) {
+                    if (this.unknownEntrance == null) {
+                        if (parameters.length == 2) {
+                            if (parameters[0].getType() == Request.class) {
+                                if (parameters[1].getType() == Responder.class) {
+                                    this.unknownEntrance = method;
+                                }
+                            }
+                        }
+                    }
+                }
+                pathList.addAll(Arrays.asList(paths.value()));
+            } else {
+                Path path = method.getAnnotation(Path.class);
+                if (path == null) {
+                    if (method.getAnnotation(UnknownPath.class) == null)
+                        continue;
                     if (parameters.length != 2)
                         continue;
                     if (parameters[0].getType() != Request.class)
                         continue;
                     if (parameters[1].getType() != Responder.class)
                         continue;
+                    this.unknownEntrance = method;
+                    continue;
                 } else {
-                    if (parameters.length < 2)
-                        continue;
-                    if (parameters[0].getType() != Request.class)
-                        continue;
-                    if (parameters[1].getType() != Responder.class)
-                        continue;
+                    if (method.getAnnotation(UnknownPath.class) != null) {
+                        if (this.unknownEntrance == null) {
+                            if (parameters.length == 2) {
+                                if (parameters[0].getType() == Request.class) {
+                                    if (parameters[1].getType() == Responder.class) {
+                                        this.unknownEntrance = method;
+                                    }
+                                }
+                            }
+                        }
+                    }
                     boolean shouldContinue = false;
                     for (int i = 2; i < parameters.length; i++) {
                         Argument arg = parameters[i].getAnnotation(Argument.class);
@@ -93,8 +116,11 @@ public class GedWebsite {
                     if (shouldContinue)
                         continue;
                 }
+                pathList.add(path);
             }
-            methods.add(method);
+            if (pathList.isEmpty())
+                continue;
+            methods.put(method, pathList.toArray(new Path[0]));
         }
     }
 
@@ -149,8 +175,13 @@ public class GedWebsite {
             if (msg instanceof FullHttpRequest) {
                 FullHttpRequest request = (FullHttpRequest) msg;
                 request.headers().get(HOST);
-                String url = request.uri();
+                String urlRaw = request.uri();
+                String url = urlRaw;
                 if (url.equalsIgnoreCase("favicon.ico")) {
+                    ctx.close();
+                    return;
+                }
+                if (url.equalsIgnoreCase("/favicon.ico")) {
                     ctx.close();
                     return;
                 }
@@ -189,7 +220,8 @@ public class GedWebsite {
                 HttpMethod httpMethod = HttpMethod.valueOf(request.method().name());
 
                 Method result = null;
-                for (Method method : website.methods) {
+                for (Map.Entry<Method, Path[]> entry : website.methods.entrySet()) {
+                    Method method = entry.getKey();
                     Host hostAnnotation = method.getAnnotation(Host.class);
                     if (hostAnnotation != null)
                         if (!in(hostAnnotation.value(), host))
@@ -198,44 +230,49 @@ public class GedWebsite {
                     if (requestMethod != null)
                         if (!in(requestMethod.value(), httpMethod))
                             continue;
-                    Path path = method.getAnnotation(Path.class);
-                    if (path == null)
-                        continue;
                     boolean shouldContinue = true;
-                    for (String pth : path.value()) {
-                        String[] pths = new String[]{};
-                        if (!pth.equals("/")) {
-                            if (pth.startsWith("/")) pth = pth.substring(1);
-                            if (pth.endsWith("/")) pth = pth.substring(0, pth.length() - 1);
-                            if (pth.contains("/")) {
-                                pths = pth.split("/");
-                            } else {
-                                pths = new String[]{pth};
+                    for (Path ptAnno : entry.getValue()) {
+                        String pth = ptAnno.value();
+                        if (ptAnno.regex()) {
+                            System.out.println(ptAnno.value());
+                            System.out.println(urlRaw);
+                            if (Pattern.matches(ptAnno.value(), urlRaw))
+                                shouldContinue = false;
+                        } else {
+                            String[] pths = new String[]{};
+                            if (!pth.equals("/")) {
+                                if (pth.startsWith("/")) pth = pth.substring(1);
+                                if (pth.endsWith("/")) pth = pth.substring(0, pth.length() - 1);
+                                if (pth.contains("/")) {
+                                    pths = pth.split("/");
+                                } else {
+                                    pths = new String[]{pth};
+                                }
                             }
-                        }
-                        if (pths.length != paths.length)
-                            continue;
-                        boolean shouldBreak = true;
-                        for (int i = 0; i < paths.length; i++) {
-                            String serverPath = pths[i];
-                            String clientPath = paths[i];
-                            if (serverPath.equals("%s"))
+                            if (pths.length != paths.length)
                                 continue;
-                            if (serverPath.equals("%i") && Pattern.matches("-?\\d+", clientPath))
-                                continue;
-                            if (serverPath.equals("%d") && Pattern.matches("-?\\d+(\\.?\\d+)?", clientPath))
-                                continue;
-                            if (clientPath.equals(serverPath)) {
+                            boolean shouldBreak = true;
+                            for (int i = 0; i < paths.length; i++) {
+                                String serverPath = pths[i];
+                                String clientPath = paths[i];
+                                if (serverPath.equals("%s"))
+                                    continue;
+                                if (serverPath.equals("%i") && Pattern.matches("-?\\d+", clientPath))
+                                    continue;
+                                if (serverPath.equals("%d") && Pattern.matches("-?\\d+(\\.?\\d+)?", clientPath))
+                                    continue;
+                                if (clientPath.equals(serverPath)) {
+                                    break;
+                                }
+                                if (ptAnno.ignoreCaps() && serverPath.equalsIgnoreCase(clientPath)) {
+                                    break;
+                                }
+                                shouldBreak = false;
+                            }
+                            if (shouldBreak) {
+                                shouldContinue = false;
                                 break;
                             }
-                            if (path.ignoreCaps() && serverPath.equalsIgnoreCase(clientPath)) {
-                                break;
-                            }
-                            shouldBreak = false;
-                        }
-                        if (shouldBreak) {
-                            shouldContinue = false;
-                            break;
                         }
                     }
                     if (shouldContinue) {
@@ -246,12 +283,7 @@ public class GedWebsite {
                 }
 
                 if (result == null) {
-                    for (Method method : website.methods) {
-                        if (method.getAnnotation(UnknownPath.class) == null)
-                            continue;
-                        result = method;
-                        break;
-                    }
+                    result = unknownEntrance;
                 }
 
                 if (result == null) {

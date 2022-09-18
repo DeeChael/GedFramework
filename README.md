@@ -8,7 +8,7 @@ maven
 <dependency>
     <groupId>net.deechael</groupId>
     <artifactId>ged-framework</artifactId>
-    <version>1.00.0</version>
+    <version>1.01.0</version>
 </dependency>
 ```
 
@@ -16,7 +16,7 @@ gradle
 ```groovy
 dependencies { 
     //...
-    implementation 'net.deechael:ged-framework:1.00.0'
+    implementation 'net.deechael:ged-framework:1.01.0'
 }
 ```
 

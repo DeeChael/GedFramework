@@ -20,6 +20,15 @@ public class ExampleWebsite {
     }
 
     @RequestMethod(HttpMethod.GET)
+    @Paths({
+            @Path("regexer"),
+            @Path(value = "/?regex/(test|fuck|blabla)", regex = true)
+    })
+    public static void regexTest(Request request, Responder responder) {
+        responder.setContent(new StringContent("Regex test success!"));
+    }
+
+    @RequestMethod(HttpMethod.GET)
     @Path(value = "/list", ignoreCaps = true)
     public static void list(Request request, Responder responder,
                             @Argument(value = "username", type = ArgumentType.STRING) String username,
