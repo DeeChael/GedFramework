@@ -24,26 +24,45 @@ dependencies {
 ```java
 package net.deechael.framework.test;
 
-import io.netty.handler.codec.http.cookie.DefaultCookie;
 import net.deechael.framework.*;
 import net.deechael.framework.content.FileContent;
 import net.deechael.framework.content.StringContent;
 
-@Website(port = 8080)
+@Websites({
+        @Website(port = 8080),
+        @Website(port = 4430, ssl = true, sslProvider = JksSSLProvider.class)
+})
 public class ExampleWebsite {
 
     public static void main(String[] args) throws InterruptedException {
-        GedWebsite website = new GedWebsite(ExampleWebsite.class);
-        // Because I don't know how to code an AnnotationProcessor
-        // If you could, please help me and make a pull request!
-        website.start();
+        try {
+            GedWebsite website = new GedWebsite(ExampleWebsite.class);
+            new JksSSLProvider();
+            website.start();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    @RequestMethod(HttpMethod.GET)
+    @Path("/header-testing")
+    public static void headerTest(Request request, Responder responder, @Header("User-Agent") String contentType) {
+        responder.setContent(new StringContent("Your content type is " + contentType));
     }
 
     @RequestMethod(HttpMethod.GET)
     @Path("/test")
     public static void test(Request request, Responder responder) {
-        responder.addCookie(new DefaultCookie("ged_token", "114514"));
         responder.setContent(new StringContent("hello, world! your address is " + request.getUserAddress()));
+    }
+
+    @RequestMethod(HttpMethod.GET)
+    @Paths({
+            @Path("regexer"),
+            @Path(value = "/?regex/(test|fuck|blabla)", regex = true)
+    })
+    public static void regexTest(Request request, Responder responder) {
+        responder.setContent(new StringContent("Regex test success!"));
     }
 
     @RequestMethod(HttpMethod.GET)
@@ -79,4 +98,5 @@ public class ExampleWebsite {
 
 
 }
+
 ```
