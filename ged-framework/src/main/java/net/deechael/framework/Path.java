@@ -17,7 +17,7 @@ import java.lang.annotation.Target;
 public @interface Path {
 
     /**
-     * this is an array doesn't mean you should separate the path
+     * This is an array doesn't mean you should separate the path
      * you can redirect multiple path to one page
      * e.g. {"/list", "/map"}
      * user can access the page with "xxx.com/list" or "xxx.com/map"
@@ -28,7 +28,7 @@ public @interface Path {
     String value();
 
     /**
-     * if ture, e.g. the value of path is {"/list"}
+     * If ture, e.g. the value of path is {"/list"}
      * you can access the page with "xxx.com/list", "xxx.com/LiST" or whatever whose lowercase is equals to "list"
      *
      * @return ignored
@@ -37,6 +37,7 @@ public @interface Path {
 
     /**
      * Match path with regex
+     *
      * @return is regex
      */
     boolean regex() default false;

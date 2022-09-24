@@ -7,13 +7,13 @@ import java.lang.annotation.Target;
 
 @Retention(RetentionPolicy.RUNTIME)
 @Target(ElementType.METHOD)
-public @interface Paths {
+public @interface Hosts {
 
     /**
-     * Multiple paths
+     * Mulitple hosts
      *
-     * @return paths
+     * @return hosts
      */
-    Path[] value();
+    Host[] value();
 
 }

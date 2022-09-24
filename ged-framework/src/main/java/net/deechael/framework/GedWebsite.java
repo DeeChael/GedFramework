@@ -16,10 +16,17 @@ import io.netty.handler.codec.http.*;
 import io.netty.handler.codec.http.cookie.Cookie;
 import io.netty.handler.codec.http.cookie.ServerCookieDecoder;
 import io.netty.handler.codec.http.cookie.ServerCookieEncoder;
+import io.netty.handler.ssl.SslHandler;
 import io.netty.handler.stream.ChunkedWriteHandler;
+import net.deechael.framework.response.PreparedResponse;
+import net.deechael.framework.response.ResponseListener;
+import net.deechael.framework.ssl.SSLProvider;
+import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLEngine;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
@@ -32,23 +39,54 @@ import static io.netty.handler.codec.http.HttpHeaderNames.*;
 public class GedWebsite {
 
     private final Logger logger;
-    private final int port;
     private final Class<?> pageHandler;
 
     private boolean started = false;
-
-    private final Map<Method, Path[]> methods = new HashMap<>();
+    private final Map<Method, Path[]> method_options = new HashMap<>();
+    private final Map<Method, Path[]> method_post = new HashMap<>();
+    private final Map<Method, Path[]> method_head = new HashMap<>();
+    private final Map<Method, Path[]> method_get = new HashMap<>();
+    private final Map<Method, Path[]> method_put = new HashMap<>();
+    private final Map<Method, Path[]> method_patch = new HashMap<>();
+    private final Map<Method, Path[]> method_delete = new HashMap<>();
+    private final Map<Method, Path[]> method_trace = new HashMap<>();
+    private final Map<Method, Path[]> method_connect = new HashMap<>();
+    private final Map<Method, Path[]> method_ignore = new HashMap<>();
 
     private Method unknownEntrance = null;
+
+    private final Map<Method, Host[]> unknowns = new HashMap<>();
+
+    private final List<ResponseListener> responseListeners = new ArrayList<>();
+
+    private final Website[] websites;
 
     public <T> GedWebsite(Class<T> pageHandler) {
         this.logger = LoggerFactory.getLogger(pageHandler);
         this.initLogger();
+        Websites websites = pageHandler.getAnnotation(Websites.class);
         Website website = pageHandler.getAnnotation(Website.class);
-        if (website == null) {
+        if (websites == null && website == null) {
             logger.error("Page handler must be annotated with Website.class", new RuntimeException("Website annotation was missed"));
         }
-        this.port = website.port();
+        List<Website> websiteList = new ArrayList<>();
+        websiteList.addAll(websites != null ? Arrays.asList(websites.value()) : Collections.singleton(website));
+        if (websiteList.size() == 0)
+            logger.error("No website!", new RuntimeException("There is no website found!"));
+        for (Website web : websiteList) {
+            if (web.ssl()) {
+                if (web.sslProvider() == SSLProvider.class) {
+                    websiteList.remove(web);
+                } else {
+                    try {
+                        web.sslProvider().getDeclaredConstructor();
+                    } catch (NoSuchMethodException ignored) {
+                        websiteList.remove(web);
+                    }
+                }
+            }
+        }
+        this.websites = websiteList.toArray(new Website[0]);
         this.pageHandler = pageHandler;
         for (Method method : pageHandler.getDeclaredMethods()) {
             if (!Modifier.isStatic(method.getModifiers()))
@@ -73,6 +111,11 @@ public class GedWebsite {
                                 }
                             }
                         }
+                    } else {
+                        Hosts hostsAnnotation = method.getAnnotation(Hosts.class);
+                        Host hostAnnotation = method.getAnnotation(Host.class);
+                        Host[] hosts = hostsAnnotation != null ? hostsAnnotation.value() : hostAnnotation != null ? new Host[]{hostAnnotation} : new Host[0];
+                        this.unknowns.put(method, hosts);
                     }
                 }
                 pathList.addAll(Arrays.asList(paths.value()));
@@ -87,7 +130,16 @@ public class GedWebsite {
                         continue;
                     if (parameters[1].getType() != Responder.class)
                         continue;
-                    this.unknownEntrance = method;
+                    if (this.unknownEntrance != null) {
+                        Hosts hostsAnnotation = method.getAnnotation(Hosts.class);
+                        Host hostAnnotation = method.getAnnotation(Host.class);
+                        Host[] hosts = hostsAnnotation != null ? hostsAnnotation.value() : hostAnnotation != null ? new Host[]{hostAnnotation} : new Host[0];
+                        if (hosts.length != 0) {
+                            this.unknowns.put(method, hosts);
+                        }
+                    } else {
+                        this.unknownEntrance = method;
+                    }
                     continue;
                 } else {
                     if (method.getAnnotation(UnknownPath.class) != null) {
@@ -99,18 +151,32 @@ public class GedWebsite {
                                     }
                                 }
                             }
+                        } else {
+                            Hosts hostsAnnotation = method.getAnnotation(Hosts.class);
+                            Host hostAnnotation = method.getAnnotation(Host.class);
+                            Host[] hosts = hostsAnnotation != null ? hostsAnnotation.value() : hostAnnotation != null ? new Host[]{hostAnnotation} : new Host[0];
+                            if (hosts.length != 0) {
+                                this.unknowns.put(method, hosts);
+                            }
                         }
                     }
                     boolean shouldContinue = false;
                     for (int i = 2; i < parameters.length; i++) {
                         Argument arg = parameters[i].getAnnotation(Argument.class);
-                        if (arg == null) {
+                        Header head = parameters[i].getAnnotation(Header.class);
+                        if (arg == null && head == null) {
                             shouldContinue = true;
                             break;
                         }
-                        if (parameters[i].getType() != arg.type().getTypeClass()) {
+                        if (arg != null && head != null) {
                             shouldContinue = true;
                             break;
+                        }
+                        if (arg != null) {
+                            if (parameters[i].getType() != arg.type().getTypeClass()) {
+                                shouldContinue = true;
+                                break;
+                            }
                         }
                     }
                     if (shouldContinue)
@@ -120,45 +186,117 @@ public class GedWebsite {
             }
             if (pathList.isEmpty())
                 continue;
-            methods.put(method, pathList.toArray(new Path[0]));
+            RequestMethod requestMethod = method.getAnnotation(RequestMethod.class);
+            if (requestMethod != null) {
+                for (HttpMethod mt : requestMethod.value()) {
+                    getMethodsWithoutIgnore(mt).put(method, pathList.toArray(new Path[0]));
+                }
+            } else {
+                method_ignore.put(method, pathList.toArray(new Path[0]));
+            }
         }
     }
 
-    public final int getPort() {
-        return port;
+    public void addLastListener(ResponseListener listener) {
+        this.responseListeners.add(listener);
     }
 
     public final void start() throws InterruptedException {
         if (!started) {
             started = true;
-            EventLoopGroup bossGroup = new NioEventLoopGroup();
-            EventLoopGroup workerGroup = new NioEventLoopGroup();
-            try {
-                ServerBootstrap b = new ServerBootstrap();
-                b.group(bossGroup, workerGroup)
-                        .channel(NioServerSocketChannel.class)
-                        .childHandler(new ChannelInitializer<SocketChannel>() {
-                            @Override
-                            public void initChannel(SocketChannel ch) {
-                                ch.pipeline().addLast("http-decoder", new HttpRequestDecoder());
-                                ch.pipeline().addLast("http-aggregator",
-                                        new HttpObjectAggregator(65536));
-                                ch.pipeline()
-                                        .addLast("http-encoder", new HttpResponseEncoder());
-                                ch.pipeline()
-                                        .addLast("http-chunked", new ChunkedWriteHandler());
-                                ch.pipeline().addLast(
-                                        new Listener(GedWebsite.this));
+            for (Website website : websites) {
+                if (website.ssl()) {
+                    try {
+                        SSLProvider provider = website.sslProvider().newInstance();
+                        runInNewThread(() -> {
+                            try {
+                                startHttps(provider.generate(), website.port());
+                            } catch (InterruptedException e) {
+                                throw new RuntimeException(e);
                             }
-                        }).option(ChannelOption.SO_BACKLOG, 128)
-                        .childOption(ChannelOption.SO_KEEPALIVE, true);
-                ChannelFuture f = b.bind(getPort()).sync();
-
-                f.channel().closeFuture().sync();
-            } finally {
-                workerGroup.shutdownGracefully();
-                bossGroup.shutdownGracefully();
+                        });
+                    } catch (InstantiationException | IllegalAccessException e) {
+                        throw new RuntimeException(e);
+                    }
+                } else {
+                    runInNewThread(() -> {
+                        try {
+                            startHttp(website.port());
+                        } catch (InterruptedException e) {
+                            throw new RuntimeException(e);
+                        }
+                    });
+                }
             }
+        }
+    }
+
+    private void runInNewThread(Runnable runnable) {
+        new Thread(runnable).start();
+    }
+
+    private void startHttp(int port) throws InterruptedException {
+        EventLoopGroup bossGroup = new NioEventLoopGroup();
+        EventLoopGroup workerGroup = new NioEventLoopGroup();
+        try {
+            ServerBootstrap b = new ServerBootstrap();
+            b.group(bossGroup, workerGroup)
+                    .channel(NioServerSocketChannel.class)
+                    .childHandler(new ChannelInitializer<SocketChannel>() {
+                        @Override
+                        public void initChannel(@NotNull SocketChannel ch) {
+                            ch.pipeline().addLast("http-decoder", new HttpRequestDecoder());
+                            ch.pipeline().addLast("http-aggregator",
+                                    new HttpObjectAggregator(65536));
+                            ch.pipeline()
+                                    .addLast("http-encoder", new HttpResponseEncoder());
+                            ch.pipeline()
+                                    .addLast("http-chunked", new ChunkedWriteHandler());
+                            ch.pipeline().addLast(
+                                    new Listener(GedWebsite.this));
+                        }
+                    }).option(ChannelOption.SO_BACKLOG, 128)
+                    .childOption(ChannelOption.SO_KEEPALIVE, true);
+            ChannelFuture f = b.bind(port).sync();
+
+            f.channel().closeFuture().sync();
+        } finally {
+            workerGroup.shutdownGracefully();
+            bossGroup.shutdownGracefully();
+        }
+    }
+
+    private void startHttps(SSLContext context, int port) throws InterruptedException {
+        EventLoopGroup bossGroup = new NioEventLoopGroup();
+        EventLoopGroup workerGroup = new NioEventLoopGroup();
+        try {
+            ServerBootstrap b = new ServerBootstrap();
+            b.group(bossGroup, workerGroup)
+                    .channel(NioServerSocketChannel.class)
+                    .childHandler(new ChannelInitializer<SocketChannel>() {
+                        @Override
+                        public void initChannel(@NotNull SocketChannel ch) {
+                            SSLEngine sslEngine = context.createSSLEngine();
+                            sslEngine.setUseClientMode(false);
+                            ch.pipeline().addLast(new SslHandler(sslEngine));
+                            ch.pipeline().addLast("http-decoder", new HttpRequestDecoder());
+                            ch.pipeline().addLast("http-aggregator",
+                                    new HttpObjectAggregator(65536));
+                            ch.pipeline()
+                                    .addLast("http-encoder", new HttpResponseEncoder());
+                            ch.pipeline()
+                                    .addLast("http-chunked", new ChunkedWriteHandler());
+                            ch.pipeline().addLast(
+                                    new Listener(GedWebsite.this));
+                        }
+                    }).option(ChannelOption.SO_BACKLOG, 128)
+                    .childOption(ChannelOption.SO_KEEPALIVE, true);
+            ChannelFuture f = b.bind(port).sync();
+
+            f.channel().closeFuture().sync();
+        } finally {
+            workerGroup.shutdownGracefully();
+            bossGroup.shutdownGracefully();
         }
     }
 
@@ -186,8 +324,12 @@ public class GedWebsite {
                     return;
                 }
                 String host = request.headers().get(HOST);
-                if (host.contains(":"))
-                    host = host.split(":")[0];
+                int port = -1;
+                if (host.contains(":")) {
+                    String[] split = host.split(":");
+                    host = split[0];
+                    port = Integer.parseInt(split[1]);
+                }
                 String[] paths = new String[]{};
                 Map<String, String> args = new HashMap<>();
                 if (url.contains("?")) {
@@ -213,6 +355,7 @@ public class GedWebsite {
                         paths = new String[]{url};
                     }
                 }
+                Map<String, String> headers = headerMap(request.headers());
                 List<Cookie> cookies = new ArrayList<>();
                 if (request.headers().contains(COOKIE)) {
                     cookies = ServerCookieDecoder.STRICT.decodeAll(request.headers().get(COOKIE));
@@ -220,34 +363,60 @@ public class GedWebsite {
                 HttpMethod httpMethod = HttpMethod.valueOf(request.method().name());
 
                 Method result = null;
-                for (Map.Entry<Method, Path[]> entry : website.methods.entrySet()) {
+                for (Map.Entry<Method, Path[]> entry : website.methoder(httpMethod).entrySet()) {
                     Method method = entry.getKey();
+                    Hosts hostsAnnotation = method.getAnnotation(Hosts.class);
                     Host hostAnnotation = method.getAnnotation(Host.class);
-                    if (hostAnnotation != null)
-                        if (!in(hostAnnotation.value(), host))
-                            continue;
-                    RequestMethod requestMethod = method.getAnnotation(RequestMethod.class);
-                    if (requestMethod != null)
-                        if (!in(requestMethod.value(), httpMethod))
-                            continue;
-                    boolean shouldContinue = true;
+                    Host[] hosts;
+                    if (hostsAnnotation != null) {
+                        hosts = hostsAnnotation.value();
+                    } else if (hostAnnotation != null) {
+                        hosts = new Host[]{};
+                    } else {
+                        hosts = new Host[0];
+                    }
+                    boolean shouldContinue = false;
+                    if (hosts.length > 0) {
+                        shouldContinue = true;
+                        for (Host hst : hosts) {
+                            if (hst.regex()) {
+                                if (Pattern.matches(hst.value(), host)) {
+                                    if (hst.port() != -1 && port != -1) {
+                                        if (hst.port() != port)
+                                            continue;
+                                    }
+                                    shouldContinue = false;
+                                    break;
+                                }
+                            } else {
+                                if (hst.value().equals(host)) {
+                                    if (hst.port() != -1 && port != -1) {
+                                        if (hst.port() != port)
+                                            continue;
+                                    }
+                                    shouldContinue = false;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    if (shouldContinue)
+                        continue;
+                    shouldContinue = true;
                     for (Path ptAnno : entry.getValue()) {
                         String pth = ptAnno.value();
+
                         if (ptAnno.regex()) {
-                            System.out.println(ptAnno.value());
-                            System.out.println(urlRaw);
                             if (Pattern.matches(ptAnno.value(), urlRaw))
                                 shouldContinue = false;
                         } else {
                             String[] pths = new String[]{};
                             if (!pth.equals("/")) {
-                                if (pth.startsWith("/")) pth = pth.substring(1);
-                                if (pth.endsWith("/")) pth = pth.substring(0, pth.length() - 1);
-                                if (pth.contains("/")) {
-                                    pths = pth.split("/");
-                                } else {
-                                    pths = new String[]{pth};
-                                }
+                                if (pth.startsWith("/"))
+                                    pth = pth.substring(1);
+                                if (pth.endsWith("/"))
+                                    pth = pth.substring(0, pth.length() - 1);
+                                pths = pth.contains("/") ? pth.split("/") : new String[]{pth};
                             }
                             if (pths.length != paths.length)
                                 continue;
@@ -261,12 +430,10 @@ public class GedWebsite {
                                     continue;
                                 if (serverPath.equals("%d") && Pattern.matches("-?\\d+(\\.?\\d+)?", clientPath))
                                     continue;
-                                if (clientPath.equals(serverPath)) {
+                                if (ptAnno.ignoreCaps() && serverPath.equalsIgnoreCase(clientPath))
                                     break;
-                                }
-                                if (ptAnno.ignoreCaps() && serverPath.equalsIgnoreCase(clientPath)) {
+                                if (clientPath.equals(serverPath))
                                     break;
-                                }
                                 shouldBreak = false;
                             }
                             if (shouldBreak) {
@@ -275,43 +442,75 @@ public class GedWebsite {
                             }
                         }
                     }
-                    if (shouldContinue) {
+                    if (shouldContinue)
                         continue;
-                    }
                     result = method;
                     break;
                 }
 
-                if (result == null) {
-                    result = unknownEntrance;
-                }
+                if (result == null)
+                    result = findUnknown(host, port);
 
                 if (result == null) {
                     ctx.close();
                     return;
                 }
+
                 byte[] bodyBytes;
                 ByteBuf bodyContent = request.content();
-                if (bodyContent.isReadable()) {
-                    bodyBytes = bodyContent.copy().array();
-                } else {
-                    bodyBytes = new byte[0];
-                }
-                Request req = new Request(paths, args, httpMethod, ctx.channel().remoteAddress().toString(), request.headers().get(HOST) + request.uri(), host, map(request.headers()), cookies, bodyBytes);
+                bodyBytes = bodyContent.isReadable() ? bodyContent.copy().array() : new byte[0];
+                Request req = new Request(paths, args, httpMethod, ctx.channel().remoteAddress().toString(), request.headers().get(HOST) + request.uri(), host, port, headers, cookies, bodyBytes);
                 Responder responder = new Responder();
                 List<Object> arguments = new ArrayList<>();
                 arguments.add(req);
                 arguments.add(responder);
                 Parameter[] parameters = result.getParameters();
+                int doWhat = 0;
                 for (int i = 2; i < parameters.length; i++) {
                     Argument arg = parameters[i].getAnnotation(Argument.class);
-                    if (args.containsKey(arg.value())) {
-                        arguments.add(arg.type().parse(args.get(arg.value())));
+                    if (arg != null) {
+                        if (args.containsKey(arg.value())) {
+                            arguments.add(arg.type().parse(args.get(arg.value())));
+                        } else {
+                            if (arg.requirement() == DataRequirement.REQUIRED_CLOSE)
+                                doWhat = 1;
+                            if (arg.requirement() == DataRequirement.REQUIRED_GO_TO_UNKNOWN_PATH)
+                                doWhat = 2;
+                            if (doWhat != 0)
+                                break;
+                            arguments.add(arg.type().getEmptyValue());
+                        }
                     } else {
-                        arguments.add(arg.type().getEmptyValue());
+                        Header head = parameters[i].getAnnotation(Header.class);
+                        String headerValue = headers.get(head.value().toLowerCase());
+                        if (headerValue != null) {
+                            arguments.add(headerValue);
+                        } else {
+                            if (head.requirement() == DataRequirement.REQUIRED_CLOSE)
+                                doWhat = 1;
+                            if (head.requirement() == DataRequirement.REQUIRED_GO_TO_UNKNOWN_PATH)
+                                doWhat = 2;
+                            if (doWhat != 0)
+                                break;
+                            arguments.add(null);
+                        }
                     }
                 }
-                result.invoke(null, arguments.toArray());
+                if (doWhat == 1) {
+                    ctx.close();
+                    return;
+                } else if (doWhat == 2) {
+                    result = findUnknown(host, port);
+                    result.invoke(request, responder);
+                } else {
+                    result.invoke(null, arguments.toArray());
+                    PreparedResponse preparedResponse = new PreparedResponse(website.pageHandler, result, req, responder);
+                    for (ResponseListener responseListener : website.responseListeners) {
+                        if (!responseListener.ignoreCancelled() && preparedResponse.isCancelled())
+                            continue;
+                        responseListener.onResponse(preparedResponse);
+                    }
+                }
 
                 if (responder.getContent() == null) {
                     ctx.close();
@@ -335,6 +534,37 @@ public class GedWebsite {
         @Override
         public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
             ctx.close();
+        }
+
+        private Method findUnknown(String host, int port) {
+            for (Map.Entry<Method, Host[]> entry : website.unknowns.entrySet()) {
+                boolean shouldContinue = true;
+                for (Host hst : entry.getValue()) {
+                    if (hst.regex()) {
+                        if (Pattern.matches(hst.value(), host)) {
+                            if (hst.port() != -1 && port != -1) {
+                                if (hst.port() != port)
+                                    continue;
+                            }
+                            shouldContinue = false;
+                            break;
+                        }
+                    } else {
+                        if (hst.value().equals(host)) {
+                            if (hst.port() != -1 && port != -1) {
+                                if (hst.port() != port)
+                                    continue;
+                            }
+                            shouldContinue = false;
+                            break;
+                        }
+                    }
+                }
+                if (shouldContinue)
+                    continue;
+                return entry.getKey();
+            }
+            return unknownEntrance;
         }
 
     }
@@ -372,16 +602,71 @@ public class GedWebsite {
         lgr.setLevel(Level.INFO);
     }
 
-    private Map<String, String> map(HttpHeaders headers) {
+    private Map<String, String> headerMap(HttpHeaders headers) {
         Map<String, String> mapHeaders = new HashMap<>();
         for (Map.Entry<String, String> entry : headers.entries()) {
-            mapHeaders.put(entry.getKey(), entry.getValue());
+            mapHeaders.put(entry.getKey().toLowerCase(), entry.getValue());
         }
         return mapHeaders;
     }
 
     private <T> boolean in(T[] ts, T t) {
         return Arrays.asList(ts).contains(t);
+    }
+
+    private Map<Method, Path[]> getMethodsWithoutIgnore(HttpMethod method) {
+        switch (method) {
+            case OPTIONS:
+                return method_options;
+            case POST:
+                return method_post;
+            case HEAD:
+                return method_head;
+            case GET:
+                return method_get;
+            case PUT:
+                return method_put;
+            case PATCH:
+                return method_patch;
+            case DELETE:
+                return method_delete;
+            case TRACE:
+                return method_trace;
+            case CONNECT:
+                return method_connect;
+        }
+        throw new RuntimeException("Unknown method");
+    }
+
+    private Map<Method, Path[]> getMethodsWithIgnore(HttpMethod method) {
+        switch (method) {
+            case OPTIONS:
+                return method_options;
+            case POST:
+                return method_post;
+            case HEAD:
+                return method_head;
+            case GET:
+                return method_get;
+            case PUT:
+                return method_put;
+            case PATCH:
+                return method_patch;
+            case DELETE:
+                return method_delete;
+            case TRACE:
+                return method_trace;
+            case CONNECT:
+                return method_connect;
+        }
+        return method_ignore;
+    }
+
+    private Map<Method, Path[]> methoder(HttpMethod method) {
+        Map<Method, Path[]> entries = new HashMap<>();
+        entries.putAll(getMethodsWithoutIgnore(method));
+        entries.putAll(method_ignore);
+        return entries;
     }
 
 }

@@ -1,16 +1,29 @@
 package net.deechael.framework.test;
 
-import io.netty.handler.codec.http.cookie.DefaultCookie;
 import net.deechael.framework.*;
 import net.deechael.framework.content.FileContent;
 import net.deechael.framework.content.StringContent;
 
-@Website(port = 8080)
+@Websites({
+        @Website(port = 8080),
+        @Website(port = 4430, ssl = true, sslProvider = JksSSLProvider.class)
+})
 public class ExampleWebsite {
 
     public static void main(String[] args) throws InterruptedException {
-        GedWebsite website = new GedWebsite(ExampleWebsite.class);
-        website.start();
+        try {
+            GedWebsite website = new GedWebsite(ExampleWebsite.class);
+            new JksSSLProvider();
+            website.start();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    @RequestMethod(HttpMethod.GET)
+    @Path("/header-testing")
+    public static void headerTest(Request request, Responder responder, @Header("User-Agent") String contentType) {
+        responder.setContent(new StringContent("Your content type is " + contentType));
     }
 
     @RequestMethod(HttpMethod.GET)

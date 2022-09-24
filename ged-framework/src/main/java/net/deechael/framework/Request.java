@@ -37,6 +37,8 @@ public class Request {
     @NotNull
     private final String host;
     @Getter
+    private final int port;
+    @Getter
     @NonNull
     @NotNull
     private final Map<String, String> headers;
@@ -47,13 +49,14 @@ public class Request {
     @Getter
     private final byte[] body;
 
-    public Request(@NotNull String[] paths, @NotNull Map<String, String> arguments, @NotNull HttpMethod method, @NotNull String userAddress, @NotNull String fullUrl, @NotNull String host, @NotNull Map<String, String> headers, @NotNull List<Cookie> cookies, byte[] body) {
+    public Request(@NotNull String[] paths, @NotNull Map<String, String> arguments, @NotNull HttpMethod method, @NotNull String userAddress, @NotNull String fullUrl, @NotNull String host, int port, @NotNull Map<String, String> headers, @NotNull List<Cookie> cookies, byte[] body) {
         this.paths = paths;
         this.arguments = arguments;
         this.method = method;
         this.userAddress = userAddress;
         this.fullUrl = fullUrl;
         this.host = host;
+        this.port = port;
         this.headers = headers;
         this.cookies = cookies;
         this.body = body;

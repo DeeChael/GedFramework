@@ -6,14 +6,14 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 @Retention(RetentionPolicy.RUNTIME)
-@Target(ElementType.METHOD)
-public @interface Paths {
+@Target(ElementType.TYPE)
+public @interface Websites {
 
     /**
-     * Multiple paths
+     * Multiple websites
      *
-     * @return paths
+     * @return websites
      */
-    Path[] value();
+    Website[] value();
 
 }
