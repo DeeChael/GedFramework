@@ -6,7 +6,7 @@ import net.deechael.framework.content.StringContent;
 
 @Websites({
         @Website(port = 8080),
-        @Website(port = 4430, ssl = true, sslProvider = JksSSLProvider.class)
+        @Website(port = 4430, ssl = true, sslProvider = PemSSLProvider.class)
 })
 public class ExampleWebsite {
 
