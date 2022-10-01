@@ -18,6 +18,10 @@ import io.netty.handler.codec.http.cookie.ServerCookieDecoder;
 import io.netty.handler.codec.http.cookie.ServerCookieEncoder;
 import io.netty.handler.ssl.SslHandler;
 import io.netty.handler.stream.ChunkedWriteHandler;
+import net.deechael.framework.item.Item;
+import net.deechael.framework.item.ItemArgument;
+import net.deechael.framework.item.ItemArgumentType;
+import net.deechael.framework.item.ItemConstructor;
 import net.deechael.framework.response.PreparedResponse;
 import net.deechael.framework.response.ResponseListener;
 import net.deechael.framework.ssl.SSLProvider;
@@ -27,12 +31,10 @@ import org.slf4j.LoggerFactory;
 
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
-import java.lang.reflect.Modifier;
-import java.lang.reflect.Parameter;
+import java.lang.reflect.*;
 import java.util.*;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import static io.netty.handler.codec.http.HttpHeaderNames.*;
 
@@ -173,9 +175,40 @@ public class GedWebsite {
                             break;
                         }
                         if (arg != null) {
-                            if (parameters[i].getType() != arg.type().getTypeClass()) {
+                            if (arg.type() == ArgumentType.ITEM) {
+                                Class<?> itemType = parameters[i].getType();
+                                if (itemType.getAnnotation(Item.class) == null) {
+                                    shouldContinue = true;
+                                    break;
+                                }
                                 shouldContinue = true;
-                                break;
+                                for (Constructor<?> constructor : itemType.getDeclaredConstructors()) {
+                                    if (constructor.getAnnotation(ItemConstructor.class) == null)
+                                        continue;
+                                    boolean oughtToContinue = false;
+                                    for (Parameter constructorParameter : constructor.getParameters()) {
+                                        ItemArgument itemArgument = constructorParameter.getAnnotation(ItemArgument.class);
+                                        if (itemArgument == null) {
+                                            oughtToContinue = true;
+                                            break;
+                                        }
+                                        if (itemArgument.type().getTypeClass() != constructorParameter.getType()) {
+                                            oughtToContinue = true;
+                                            break;
+                                        }
+                                    }
+                                    if (oughtToContinue)
+                                        continue;
+                                    shouldContinue = false;
+                                    break;
+                                }
+                                if (shouldContinue)
+                                    break;
+                            } else {
+                                if (parameters[i].getType() != arg.type().getTypeClass()) {
+                                    shouldContinue = true;
+                                    break;
+                                }
                             }
                         }
                     }
@@ -469,16 +502,76 @@ public class GedWebsite {
                 for (int i = 2; i < parameters.length; i++) {
                     Argument arg = parameters[i].getAnnotation(Argument.class);
                     if (arg != null) {
-                        if (args.containsKey(arg.value())) {
-                            arguments.add(arg.type().parse(args.get(arg.value())));
+                        if (arg.type() == ArgumentType.ITEM) {
+                            Class<?> itemClass = parameters[i].getType();
+                            List<Map.Entry<Constructor<?>, ItemConstructor>> itemConstructors = new ArrayList<>();
+                            for (Constructor<?> itemConstructor : itemClass.getDeclaredConstructors()) {
+                                ItemConstructor itemConstructorAnno = itemConstructor.getAnnotation(ItemConstructor.class);
+                                if (itemConstructorAnno != null)
+                                    itemConstructors.add(new AbstractMap.SimpleEntry<>(itemConstructor, itemConstructorAnno));
+                            }
+                            itemConstructors.sort((a, b) -> Integer.compare(b.getValue().priority(), a.getValue().priority()));
+                            Constructor<?> itemConstructor = null;
+                            for (Constructor<?> constructor : itemConstructors.stream().map(Map.Entry::getKey).collect(Collectors.toList())) {
+                                boolean constructorBreak = true;
+                                for (Parameter itemParameter : constructor.getParameters()) {
+                                    ItemArgument itemArgument = itemParameter.getAnnotation(ItemArgument.class);
+                                    if (itemArgument.require()) {
+                                        if (itemArgument.type() == ItemArgumentType.HEADER) {
+                                            if (!headers.containsKey(itemArgument.name())) {
+                                                constructorBreak = false;
+                                                break;
+                                            }
+                                        } else {
+                                            if (!args.containsKey(itemArgument.name())) {
+                                                constructorBreak = false;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                                if (constructorBreak) {
+                                    itemConstructor = constructor;
+                                    break;
+                                }
+                            }
+                            if (itemConstructor == null) {
+                                if (arg.requirement() == DataRequirement.REQUIRED_CLOSE)
+                                    doWhat = 1;
+                                if (arg.requirement() == DataRequirement.REQUIRED_GO_TO_UNKNOWN_PATH)
+                                    doWhat = 2;
+                                if (doWhat != 0)
+                                    break;
+                                arguments.add(arg.type().getEmptyValue());
+                                continue;
+                            }
+                            itemConstructor.setAccessible(true);
+                            List<Object> itemParameters = new ArrayList<>();
+                            for (Parameter itemParameter : itemConstructor.getParameters()) {
+                                ItemArgument itemArgument = itemParameter.getAnnotation(ItemArgument.class);
+                                if (itemArgument.type() == ItemArgumentType.HEADER) {
+                                    itemParameters.add(headers.get(itemArgument.name()));
+                                } else {
+                                    if (!args.containsKey(itemArgument.name())) {
+                                        itemParameters.add(itemArgument.type().getEmptyValue());
+                                    } else {
+                                        itemParameters.add(itemArgument.type().parse(args.get(itemArgument.name())));
+                                    }
+                                }
+                            }
+                            arguments.add(itemConstructor.newInstance(itemParameters.toArray(new Object[0])));
                         } else {
-                            if (arg.requirement() == DataRequirement.REQUIRED_CLOSE)
-                                doWhat = 1;
-                            if (arg.requirement() == DataRequirement.REQUIRED_GO_TO_UNKNOWN_PATH)
-                                doWhat = 2;
-                            if (doWhat != 0)
-                                break;
-                            arguments.add(arg.type().getEmptyValue());
+                            if (args.containsKey(arg.value())) {
+                                arguments.add(arg.type().parse(args.get(arg.value())));
+                            } else {
+                                if (arg.requirement() == DataRequirement.REQUIRED_CLOSE)
+                                    doWhat = 1;
+                                if (arg.requirement() == DataRequirement.REQUIRED_GO_TO_UNKNOWN_PATH)
+                                    doWhat = 2;
+                                if (doWhat != 0)
+                                    break;
+                                arguments.add(arg.type().getEmptyValue());
+                            }
                         }
                     } else {
                         Header head = parameters[i].getAnnotation(Header.class);

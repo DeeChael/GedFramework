@@ -27,10 +27,14 @@ package net.deechael.framework.test;
 import net.deechael.framework.*;
 import net.deechael.framework.content.FileContent;
 import net.deechael.framework.content.StringContent;
+import net.deechael.framework.item.Item;
+import net.deechael.framework.item.ItemArgument;
+import net.deechael.framework.item.ItemArgumentType;
+import net.deechael.framework.item.ItemConstructor;
 
 @Websites({
         @Website(port = 8080),
-        @Website(port = 4430, ssl = true, sslProvider = JksSSLProvider.class)
+        @Website(port = 4430, ssl = true, sslProvider = PemSSLProvider.class)
 })
 public class ExampleWebsite {
 
@@ -42,6 +46,31 @@ public class ExampleWebsite {
         } catch (Exception e) {
             e.printStackTrace();
         }
+    }
+
+    @Item
+    public static class User {
+
+        private String userAgent;
+
+        @ItemConstructor
+        public User(@ItemArgument(type = ItemArgumentType.HEADER, name = "user-agent") String userAgent) {
+            this.userAgent = userAgent;
+        }
+
+        public String getUserAgent() {
+            return userAgent;
+        }
+
+    }
+
+    @Path("/itemtest")
+    public static void itemTest(Request request,
+                                Responder responder,
+                                @Argument(value = "", type = ArgumentType.ITEM) User user) {
+        responder.setContent(new StringContent("Welcome!\n" +
+                "Your user agent is:\n" +
+                user.getUserAgent()));
     }
 
     @RequestMethod(HttpMethod.GET)
