@@ -5,7 +5,7 @@ plugins {
 }
 
 group 'net.deechael'
-version '1.02.0'
+version '1.03.0'
 
 repositories {
     mavenCentral()
@@ -41,7 +41,7 @@ publishing {
         maven(MavenPublication) {
             groupId = 'net.deechael'
             artifactId = 'ged-framework'
-            version = "1.02.0"
+            version = "1.03.0"
             from components.java
 
             pom {
