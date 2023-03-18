@@ -27,6 +27,7 @@ import net.deechael.framework.item.ItemConstructor;
 import net.deechael.framework.response.PreparedResponse;
 import net.deechael.framework.response.ResponseListener;
 import net.deechael.framework.ssl.SSLProvider;
+import net.deechael.useless.objs.DuObj;
 import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,6 +35,7 @@ import org.slf4j.LoggerFactory;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
 import java.io.File;
+import java.lang.annotation.Annotation;
 import java.lang.reflect.*;
 import java.util.*;
 import java.util.regex.Pattern;
@@ -58,17 +60,79 @@ public class GedWebsite {
     private final Map<Method, Path[]> method_connect = new HashMap<>();
     private final Map<Method, Path[]> method_ignore = new HashMap<>();
 
+    private final Map<Path, Object> owners = new HashMap<>();
+
     private Method unknownEntrance = null;
+    private Object unknownOwner = null;
 
     private final Map<Method, Host[]> unknowns = new HashMap<>();
 
     private final List<ResponseListener> responseListeners = new ArrayList<>();
 
     private final Website[] websites;
-
-    private final Listener listener;
+    private final Map<Website, SSLProvider> sslProviderMap = new HashMap<>();
 
     private final File favicon;
+
+    GedWebsite(WebsiteBuilder builder) {
+        this.logger = LoggerFactory.getLogger("Website");
+        this.initLogger();
+        this.pageHandler = null;
+        this.websites = new Website[]{
+                new Website() {
+                    @Override
+                    public Class<? extends Annotation> annotationType() {
+                        return Website.class;
+                    }
+
+                    @Override
+                    public String favicon() {
+                        return null;
+                    }
+
+                    @Override
+                    public int port() {
+                        return builder.port();
+                    }
+
+                    @Override
+                    public Class<? extends ResponseListener>[] listeners() {
+                        return new Class[0];
+                    }
+
+                    @Override
+                    public boolean ssl() {
+                        return builder.sslProvider() != null;
+                    }
+
+                    @Override
+                    public Class<? extends SSLProvider> sslProvider() {
+                        return null;
+                    }
+                }
+        };
+        if (builder.sslProvider() != null)
+            this.sslProviderMap.put(websites[0], builder.sslProvider());
+        this.favicon = builder.favicon();
+        this.responseListeners.addAll(builder.responseListeners());
+        DuObj<Method, Map<HttpMethod, Map<Path, ?>>> obj = builder.paths();
+        for (Map.Entry<HttpMethod, Map<Path, ?>> entry1 : obj.getSecond().entrySet()) {
+            solveBuilderPaths(obj.getFirst(), getMethodsWithoutIgnore(entry1.getKey()), entry1.getValue());
+        }
+        solveBuilderPaths(obj.getFirst(), this.method_ignore, builder.ignoredPaths());
+        DuObj<Method, ?> duObj = builder.unknown();
+        if (duObj != null) {
+            this.unknownEntrance = duObj.getFirst();
+            this.unknownOwner = duObj.getSecond();
+        }
+    }
+
+    private void solveBuilderPaths(Method method, Map<Method, Path[]> paths, Map<Path, ?> from) {
+        for (Map.Entry<Path, ?> entry : from.entrySet()) {
+            paths.put(method, new Path[]{entry.getKey()});
+            owners.put(entry.getKey(), entry.getValue());
+        }
+    }
 
     public <T> GedWebsite(Class<T> pageHandler) {
         this.logger = LoggerFactory.getLogger(pageHandler);
@@ -89,8 +153,10 @@ public class GedWebsite {
                     websiteList.remove(web);
                 } else {
                     try {
-                        web.sslProvider().getDeclaredConstructor();
-                    } catch (NoSuchMethodException ignored) {
+                        Constructor<?> constructor = web.sslProvider().getDeclaredConstructor();
+                        sslProviderMap.put(web, (SSLProvider) constructor.newInstance());
+                    } catch (NoSuchMethodException | InstantiationException | IllegalAccessException |
+                             InvocationTargetException ignored) {
                         websiteList.remove(web);
                     }
                 }
@@ -99,7 +165,6 @@ public class GedWebsite {
         this.websites = websiteList.toArray(new Website[0]);
         this.pageHandler = pageHandler;
         this.init();
-        this.listener = new Listener(this);
         File favicon = new File(website.favicon());
         if (favicon.exists() && favicon.isFile())
             this.favicon = favicon;
@@ -256,18 +321,14 @@ public class GedWebsite {
             started = true;
             for (Website website : websites) {
                 if (website.ssl()) {
-                    try {
-                        SSLProvider provider = website.sslProvider().newInstance();
-                        runInNewThread(() -> {
-                            try {
-                                startHttps(provider.generate(), website.port());
-                            } catch (InterruptedException e) {
-                                throw new RuntimeException(e);
-                            }
-                        });
-                    } catch (InstantiationException | IllegalAccessException e) {
-                        throw new RuntimeException(e);
-                    }
+                    SSLProvider provider = sslProviderMap.get(website);
+                    runInNewThread(() -> {
+                        try {
+                            startHttps(provider.generate(), website.port());
+                        } catch (InterruptedException e) {
+                            throw new RuntimeException(e);
+                        }
+                    });
                 } else {
                     runInNewThread(() -> {
                         try {
@@ -348,7 +409,7 @@ public class GedWebsite {
         }
     }
 
-    private class Listener extends ChannelInboundHandlerAdapter {
+    private static class Listener extends ChannelInboundHandlerAdapter {
 
         private final GedWebsite website;
 
@@ -408,7 +469,7 @@ public class GedWebsite {
                         paths = new String[]{url};
                     }
                 }
-                Map<String, String> headers = headerMap(request.headers());
+                Map<String, String> headers = website.headerMap(request.headers());
                 List<Cookie> cookies = new ArrayList<>();
                 if (request.headers().contains(COOKIE)) {
                     cookies = ServerCookieDecoder.STRICT.decodeAll(request.headers().get(COOKIE));
@@ -416,6 +477,7 @@ public class GedWebsite {
                 HttpMethod httpMethod = HttpMethod.valueOf(request.method().name());
 
                 Method result = null;
+                Path pathAnno = null;
                 for (Map.Entry<Method, Path[]> entry : website.methoder(httpMethod).entrySet()) {
                     Method method = entry.getKey();
                     Hosts hostsAnnotation = method.getAnnotation(Hosts.class);
@@ -457,6 +519,7 @@ public class GedWebsite {
                         continue;
                     shouldContinue = true;
                     for (Path ptAnno : entry.getValue()) {
+                        pathAnno = ptAnno;
                         String pth = ptAnno.value();
 
                         if (ptAnno.regex()) {
@@ -501,8 +564,12 @@ public class GedWebsite {
                     break;
                 }
 
-                if (result == null)
+                boolean isUnknown = false;
+
+                if (result == null) {
                     result = findUnknown(host, port);
+                    isUnknown = true;
+                }
 
                 if (result == null) {
                     ctx.close();
@@ -614,9 +681,13 @@ public class GedWebsite {
                     return;
                 } else if (doWhat == 2) {
                     result = findUnknown(host, port);
-                    result.invoke(request, responder);
+                    result.invoke(website.unknownOwner, request, responder);
                 } else {
-                    result.invoke(null, arguments.toArray());
+                    if (isUnknown) {
+                        result.invoke(website.unknownOwner, arguments.toArray());
+                    } else {
+                        result.invoke(website.owners.get(pathAnno), arguments.toArray());
+                    }
                     PreparedResponse preparedResponse = new PreparedResponse(website.pageHandler, result, req, responder);
                     for (ResponseListener responseListener : website.responseListeners) {
                         if (!responseListener.ignoreCancelled() && preparedResponse.isCancelled())
@@ -692,7 +763,7 @@ public class GedWebsite {
                     continue;
                 return entry.getKey();
             }
-            return unknownEntrance;
+            return website.unknownEntrance;
         }
 
     }
