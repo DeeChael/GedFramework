@@ -1,6 +1,7 @@
 package net.deechael.framework.test;
 
 import net.deechael.framework.*;
+import net.deechael.framework.content.Content;
 import net.deechael.framework.content.FileContent;
 import net.deechael.framework.content.StringContent;
 import net.deechael.framework.item.Item;
@@ -10,7 +11,7 @@ import net.deechael.framework.item.ItemConstructor;
 
 @Websites({
         @Website(port = 8080),
-        @Website(port = 4430, ssl = true, sslProvider = PemSSLProvider.class)
+        @Website(port = 4430, ssl = true, sslProvider = JksSSLProvider.class)
 })
 public class ExampleWebsite {
 
@@ -94,6 +95,11 @@ public class ExampleWebsite {
     public static void css(Request request, Responder responder) {
         responder.setContentType(ContentType.TEXT_CSS);
         responder.setContent(new FileContent("css/" + request.getPaths()[1]));
+    }
+
+    @Path("/redirect")
+    public static void redirectTest(Request request, Responder responder) {
+        responder.setContent(Content.redirect("/regexer"));
     }
 
     @UnknownPath

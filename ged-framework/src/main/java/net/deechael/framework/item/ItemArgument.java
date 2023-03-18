@@ -15,6 +15,7 @@ public @interface ItemArgument {
 
     /**
      * The type of the argument
+     *
      * @return string, double, int, boolean or header(string)
      */
     ItemArgumentType type();

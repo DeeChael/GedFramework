@@ -18,6 +18,8 @@ import io.netty.handler.codec.http.cookie.ServerCookieDecoder;
 import io.netty.handler.codec.http.cookie.ServerCookieEncoder;
 import io.netty.handler.ssl.SslHandler;
 import io.netty.handler.stream.ChunkedWriteHandler;
+import net.deechael.framework.content.Content;
+import net.deechael.framework.content.RedirectContent;
 import net.deechael.framework.item.Item;
 import net.deechael.framework.item.ItemArgument;
 import net.deechael.framework.item.ItemArgumentType;
@@ -31,6 +33,7 @@ import org.slf4j.LoggerFactory;
 
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
+import java.io.File;
 import java.lang.reflect.*;
 import java.util.*;
 import java.util.regex.Pattern;
@@ -63,6 +66,10 @@ public class GedWebsite {
 
     private final Website[] websites;
 
+    private final Listener listener;
+
+    private final File favicon;
+
     public <T> GedWebsite(Class<T> pageHandler) {
         this.logger = LoggerFactory.getLogger(pageHandler);
         this.initLogger();
@@ -71,11 +78,12 @@ public class GedWebsite {
         if (websites == null && website == null) {
             logger.error("Page handler must be annotated with Website.class", new RuntimeException("Website annotation was missed"));
         }
-        List<Website> websiteList = new ArrayList<>();
-        websiteList.addAll(websites != null ? Arrays.asList(websites.value()) : Collections.singleton(website));
+        List<Website> websiteList = new ArrayList<>(websites != null ? Arrays.asList(websites.value()) : Collections.singleton(website));
         if (websiteList.size() == 0)
             logger.error("No website!", new RuntimeException("There is no website found!"));
         for (Website web : websiteList) {
+            if (website == null)
+                website = web;
             if (web.ssl()) {
                 if (web.sslProvider() == SSLProvider.class) {
                     websiteList.remove(web);
@@ -90,6 +98,15 @@ public class GedWebsite {
         }
         this.websites = websiteList.toArray(new Website[0]);
         this.pageHandler = pageHandler;
+        this.init();
+        this.listener = new Listener(this);
+        File favicon = new File(website.favicon());
+        if (favicon.exists() && favicon.isFile())
+            this.favicon = favicon;
+        else this.favicon = null;
+    }
+
+    private void init() {
         for (Method method : pageHandler.getDeclaredMethods()) {
             if (!Modifier.isStatic(method.getModifiers()))
                 continue;
@@ -285,8 +302,7 @@ public class GedWebsite {
                                     .addLast("http-encoder", new HttpResponseEncoder());
                             ch.pipeline()
                                     .addLast("http-chunked", new ChunkedWriteHandler());
-                            ch.pipeline().addLast(
-                                    new Listener(GedWebsite.this));
+                            ch.pipeline().addLast(new Listener(GedWebsite.this));
                         }
                     }).option(ChannelOption.SO_BACKLOG, 128)
                     .childOption(ChannelOption.SO_KEEPALIVE, true);
@@ -319,8 +335,7 @@ public class GedWebsite {
                                     .addLast("http-encoder", new HttpResponseEncoder());
                             ch.pipeline()
                                     .addLast("http-chunked", new ChunkedWriteHandler());
-                            ch.pipeline().addLast(
-                                    new Listener(GedWebsite.this));
+                            ch.pipeline().addLast(new Listener(GedWebsite.this));
                         }
                     }).option(ChannelOption.SO_BACKLOG, 128)
                     .childOption(ChannelOption.SO_KEEPALIVE, true);
@@ -348,13 +363,18 @@ public class GedWebsite {
                 request.headers().get(HOST);
                 String urlRaw = request.uri();
                 String url = urlRaw;
-                if (url.equalsIgnoreCase("favicon.ico")) {
-                    ctx.close();
-                    return;
-                }
-                if (url.equalsIgnoreCase("/favicon.ico")) {
-                    ctx.close();
-                    return;
+                if (url.equalsIgnoreCase("favicon.ico") || url.equalsIgnoreCase("/favicon.ico")) {
+                    if (website.favicon != null) {
+                        FullHttpResponse response = new DefaultFullHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.OK, Unpooled.copiedBuffer(Content.file(website.favicon).getBytes()));
+                        response.headers().set(CONTENT_TYPE, ContentType.IMAGE_PNG.getContentType());
+                        response.headers().set(HttpHeaderNames.CONTENT_LENGTH, response.content().readableBytes());
+                        response.headers().set(CONNECTION, HttpHeaderValues.KEEP_ALIVE);
+                        ctx.writeAndFlush(response);
+                        return;
+                    } else {
+                        ctx.close();
+                        return;
+                    }
                 }
                 String host = request.headers().get(HOST);
                 int port = -1;
@@ -370,9 +390,9 @@ public class GedWebsite {
                     url = split[0];
                     String arg = split[1];
                     if (arg.contains("&")) {
-                        for (String aaaaa : arg.split("&")) {
-                            if (aaaaa.contains("=")) {
-                                args.put(aaaaa.split("=")[0], aaaaa.split("=")[1]);
+                        for (String temp : arg.split("&")) {
+                            if (temp.contains("=")) {
+                                args.put(temp.split("=")[0], temp.split("=")[1]);
                             }
                         }
                     } else if (arg.contains("=")) {
@@ -610,11 +630,25 @@ public class GedWebsite {
                     return;
                 }
 
-                FullHttpResponse response = new DefaultFullHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.valueOf(responder.getStatus().getCode()), Unpooled.copiedBuffer(responder.getContent().getBytes()));
-                response.headers().set(SET_COOKIE, ServerCookieEncoder.STRICT.encode(responder.getCookies()));
-                response.headers().set(CONTENT_TYPE, responder.getContentType().getContentType());
-                response.headers().set(HttpHeaderNames.CONTENT_LENGTH, response.content().readableBytes());
-                response.headers().set(CONNECTION, HttpHeaderValues.KEEP_ALIVE);
+                FullHttpResponse response;
+                if (responder.getContent() instanceof RedirectContent) {
+                    response = new DefaultFullHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.MOVED_PERMANENTLY, Unpooled.copiedBuffer("Redirected".getBytes()));
+                    response.headers().set(SET_COOKIE, ServerCookieEncoder.STRICT.encode(responder.getCookies()));
+                    response.headers().set(CONTENT_TYPE, ContentType.TEXT_HTML.getContentType());
+                    response.headers().set(HttpHeaderNames.CONTENT_LENGTH, response.content().readableBytes());
+                    response.headers().set(CONNECTION, HttpHeaderValues.KEEP_ALIVE);
+                    for (String key : responder.getHeaders().keySet())
+                        response.headers().add(key, responder.getHeaders().get(key));
+                    response.headers().add("Location", ((RedirectContent) responder.getContent()).getUrl());
+                } else {
+                    response = new DefaultFullHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.valueOf(responder.getStatus().getCode()), Unpooled.copiedBuffer(responder.getContent().getBytes()));
+                    response.headers().set(SET_COOKIE, ServerCookieEncoder.STRICT.encode(responder.getCookies()));
+                    response.headers().set(CONTENT_TYPE, responder.getContentType().getContentType());
+                    response.headers().set(HttpHeaderNames.CONTENT_LENGTH, response.content().readableBytes());
+                    response.headers().set(CONNECTION, HttpHeaderValues.KEEP_ALIVE);
+                    for (String key : responder.getHeaders().keySet())
+                        response.headers().add(key, responder.getHeaders().get(key));
+                }
                 ctx.writeAndFlush(response);
             }
         }
@@ -626,6 +660,7 @@ public class GedWebsite {
 
         @Override
         public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+            cause.printStackTrace();
             ctx.close();
         }
 
@@ -760,6 +795,14 @@ public class GedWebsite {
         entries.putAll(getMethodsWithoutIgnore(method));
         entries.putAll(method_ignore);
         return entries;
+    }
+
+    public static void startApplication(Class<?> clazz) {
+        try {
+            new GedWebsite(clazz).start();
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
     }
 
 }

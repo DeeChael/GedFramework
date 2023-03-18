@@ -15,6 +15,7 @@ public @interface ItemConstructor {
 
     /**
      * The higher value of priority is, the higher chance the constructor will be invoked
+     *
      * @return priority
      */
     int priority() default 0;

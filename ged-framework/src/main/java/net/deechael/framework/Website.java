@@ -16,6 +16,8 @@ import java.lang.annotation.Target;
 @Target(ElementType.TYPE)
 public @interface Website {
 
+    String favicon() default "";
+
     /**
      * The website will start on this port
      *
