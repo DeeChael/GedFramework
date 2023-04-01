@@ -7,10 +7,12 @@ public class LightweightWebsiteExample {
 
     public static void main(String[] args) throws InterruptedException {
         WebsiteBuilder.of(8080)
+                .sslProvider(new JksSSLProvider())
+                .favicon("./gedstudio.png")
                 .unknown(((request, responder) -> {
                     responder.setContent(Content.text("Nothing there"));
                 }))
-                .path("/", false, false, ((request, responder) -> {
+                .path("/", ((request, responder) -> {
                     responder.setContent(Content.text("Hello, world!"));
                 }))
                 .build()

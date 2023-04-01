@@ -151,6 +151,42 @@ public class WebsiteBuilder {
         return this;
     }
 
+    public WebsiteBuilder head(String path, BiConsumer<Request, Responder> consumer) {
+        return this.head(path, false, false, consumer);
+    }
+
+    public WebsiteBuilder options(String path, BiConsumer<Request, Responder> consumer) {
+        return this.options(path, false, false, consumer);
+    }
+
+    public WebsiteBuilder delete(String path, BiConsumer<Request, Responder> consumer) {
+        return this.delete(path, false, false, consumer);
+    }
+
+    public WebsiteBuilder trace(String path, BiConsumer<Request, Responder> consumer) {
+        return this.trace(path, false, false, consumer);
+    }
+
+    public WebsiteBuilder connect(String path, BiConsumer<Request, Responder> consumer) {
+        return this.connect(path, false, false, consumer);
+    }
+
+    public WebsiteBuilder patch(String path, BiConsumer<Request, Responder> consumer) {
+        return this.patch(path, false, false, consumer);
+    }
+
+    public WebsiteBuilder post(String path, BiConsumer<Request, Responder> consumer) {
+        return this.post(path, false, false, consumer);
+    }
+
+    public WebsiteBuilder get(String path, BiConsumer<Request, Responder> consumer) {
+        return this.get(path, false, false, consumer);
+    }
+
+    public WebsiteBuilder path(String path, BiConsumer<Request, Responder> consumer) {
+        return this.path(path, false, false, consumer);
+    }
+
     public WebsiteBuilder responseListener(ResponseListener listener) {
         this.responseListeners.add(listener);
         return this;
